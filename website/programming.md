@@ -1,5 +1,7 @@
 # Programming with cards
 
+[Guida in italiano](it/index.md).
+
 Open **Program with cards**. The editor uses the basic single-drone commands familiar from Tello EDU-style
 block programming. You can build and test a complete sequence without a drone.
 

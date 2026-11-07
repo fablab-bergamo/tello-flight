@@ -34,12 +34,15 @@ jobs:
         run: |
           ./dist/TelloFlight/TelloFlight.exe --diagnose --seconds 2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./dist/TelloFlight/TelloFlight.exe --program --screenshot artifacts/program.png
+          ./dist/TelloFlight/TelloFlight.exe --language en --program --screenshot artifacts/program.png
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./dist/TelloFlight/TelloFlight.exe --language it --program --screenshot artifacts/program-it.png
       - name: Smoke test Linux package
         if: runner.os == 'Linux'
         run: |
           ./dist/TelloFlight/TelloFlight --diagnose --seconds 2
-          ./dist/TelloFlight/TelloFlight --program --screenshot artifacts/program.png
+          ./dist/TelloFlight/TelloFlight --language en --program --screenshot artifacts/program.png
+          ./dist/TelloFlight/TelloFlight --language it --program --screenshot artifacts/program-it.png
       - name: Archive Windows
         if: runner.os == 'Windows'
         shell: pwsh

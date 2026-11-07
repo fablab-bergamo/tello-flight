@@ -51,6 +51,12 @@ diagnostic bundles. Start, card dispatch, completion and failures are logged wit
 
 ## Diagnostics and distribution
 
+`i18n.py` contains the English/Italian presentation catalog. The UI translates labels, canonical status
+messages and Qt dialog buttons without modifying engine state, SDK commands or the JSON program format.
+Changing the language retranslates existing widgets and painter text in place. QSettings stores the user's
+language choice; the command-line option can override startup language. Technical logs retain stable
+English events and protocol identifiers for troubleshooting across languages.
+
 Rotating JSONL logs include session IDs, command timing, telemetry, transport events and tracebacks.
 ZIP export adds a system/version manifest and current state. Data is never uploaded automatically.
 

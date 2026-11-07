@@ -18,6 +18,7 @@ python -m pytest -q
 | `test_ui.py` | Qt simulator takeoff/land, keyboard input, focus-loss reset, rendering |
 | `test_program.py` | All card defaults and ranges, file validation, ordered execution, timed waits, cancellation, late replies, low battery, simulator motion and full runs |
 | `test_program_ui.py` | Adding/editing/reordering cards, persistence, execution highlighting, editing lock and Stop & land |
+| `test_i18n.py` | Italian card/parameter coverage, message interpolation, language preference, translated dialogs, unchanged saved programs and language switching during a run |
 
 CI is configured to run on Windows and Ubuntu 24.04 using Python 3.12. It also builds the docs,
 renders a UI screenshot, packages the executable, and checks the packaged diagnostic command.
@@ -27,6 +28,7 @@ For a local preview:
 ```bash
 python -m tello_flight --screenshot artifacts/console.png
 python -m tello_flight --program --screenshot artifacts/program.png
+python -m tello_flight --language it --program --screenshot artifacts/program-it.png
 python -m tello_flight --diagnose --seconds 3 --bundle artifacts/debug.zip
 ```
 

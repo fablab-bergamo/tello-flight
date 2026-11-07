@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -27,15 +27,11 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QMainWindow,
-    QMessageBox,
     QPlainTextEdit,
-    QPushButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -44,6 +40,29 @@ from PySide6.QtWidgets import (
 from . import __version__
 from .diagnostics import SESSION, export_bundle
 from .engine import TELEMETRY_TIMEOUT, FlightEngine
+from .i18n import (
+    LANGUAGES,
+    ButtonTranslator,
+    language,
+    message,
+    number,
+    preferred_language,
+    retranslate_widgets,
+    set_language,
+    tr,
+)
+from .i18n import (
+    FileDialog as QFileDialog,
+)
+from .i18n import (
+    MessageBox as QMessageBox,
+)
+from .i18n import (
+    TextButton as QPushButton,
+)
+from .i18n import (
+    TextLabel as QLabel,
+)
 from .model import Connection, FlightState
 from .program import validate_program
 from .program_ui import ProgramPanel
@@ -117,7 +136,7 @@ class Joystick(QWidget):
         self.dragging = False
         self.setFixedSize(210, 245)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setToolTip("Hold and drag to move. Release to center.")
+        self.setToolTip(tr("Hold and drag to move. Release to center."))
 
     def reset(self):
         self.dragging = False
@@ -167,7 +186,7 @@ class Joystick(QWidget):
         p.drawEllipse(center + QPointF(self.x * 61, self.y * 61), 19, 19)
         p.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
         p.setPen(WHITE)
-        p.drawText(QRectF(0, 205, 210, 20), Qt.AlignmentFlag.AlignCenter, self.title)
+        p.drawText(QRectF(0, 205, 210, 20), Qt.AlignmentFlag.AlignCenter, tr(self.title))
         p.setFont(QFont("Segoe UI", 8))
         p.setPen(QColor("#9bafb9"))
         p.drawText(
@@ -212,13 +231,13 @@ class CameraView(QWidget):
         p.setPen(QColor("#d7e6ed"))
         p.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
         label = "SIMULATED CAMERA  /  NO DRONE CONNECTED" if self.simulator else "TELLO CAMERA"
-        p.drawText(27, 34, label)
+        p.drawText(27, 34, tr(label))
         p.setPen(CYAN)
         p.drawEllipse(QPointF(w - 132, 29), 3, 3)
         p.setFont(QFont("Segoe UI", 8))
         video_age = time.monotonic() - self.frame_at
         status = "SIMULATION" if self.simulator else ("LIVE" if video_age < 2 else "NO VIDEO")
-        p.drawText(w - 120, 34, status)
+        p.drawText(w - 120, 34, tr(status))
         p.setPen(QPen(QColor(230, 244, 250, 90), 1))
         cx, cy = w / 2, h * 0.45
         if self.grid:
@@ -239,13 +258,13 @@ class CameraView(QWidget):
             p.drawText(
                 QRectF(cx - 190, cy + 35, 380, 25),
                 Qt.AlignmentFlag.AlignCenter,
-                "Camera unavailable" if self.frame else "Camera is off",
+                tr("Camera unavailable" if self.frame else "Camera is off"),
             )
             p.setPen(QColor("#91a5b2"))
             p.drawText(
                 QRectF(cx - 190, cy + 60, 380, 20),
                 Qt.AlignmentFlag.AlignCenter,
-                "Enable video while grounded to start the preview",
+                tr("Enable video while grounded to start the preview"),
             )
         # Two values sit between the virtual sticks.
         for offset, value, unit, caption in [
@@ -259,16 +278,16 @@ class CameraView(QWidget):
                 self.state.telemetry.received_at
                 and time.monotonic() - self.state.telemetry.received_at < TELEMETRY_TIMEOUT
             )
-            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, f"{value:.1f}" if valid else "—")
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, number(value) if valid else "—")
             p.setFont(QFont("Segoe UI", 9))
             p.setPen(QColor("#94aab7"))
-            p.drawText(rect.translated(0, 35), Qt.AlignmentFlag.AlignCenter, unit + "  ·  " + caption)
+            p.drawText(rect.translated(0, 35), Qt.AlignmentFlag.AlignCenter, unit + "  ·  " + tr(caption))
         p.setPen(QColor("#7d96a5"))
         p.setFont(QFont("Segoe UI", 8))
         p.drawText(
             QRectF(0, h - 34, w, 20),
             Qt.AlignmentFlag.AlignCenter,
-            "MODE 2     •     HOLD TO MOVE     •     RELEASE TO HOVER",
+            tr("MODE 2     •     HOLD TO MOVE     •     RELEASE TO HOVER"),
         )
         p.end()
 
@@ -326,7 +345,7 @@ class CameraView(QWidget):
 class SessionDialog(QDialog):
     def __init__(self, config, parent):
         super().__init__(parent)
-        self.setWindowTitle("Flight session")
+        self.setWindowTitle(tr("Flight session"))
         self.setMinimumWidth(430)
         layout = QVBoxLayout(self)
         title = QLabel("Choose your flight session")
@@ -334,13 +353,13 @@ class SessionDialog(QDialog):
         layout.addWidget(title)
         form = QFormLayout()
         self.mode = QComboBox()
-        self.mode.addItems(["Simulator — no drone required", "Live Tello — connected over Wi-Fi"])
+        self.mode.addItems([tr("Simulator — no drone required"), tr("Live Tello — connected over Wi-Fi")])
         self.mode.setCurrentIndex(0 if config.simulator else 1)
         self.host = QLineEdit(config.host)
         self.local = QLineEdit(config.local_address)
-        form.addRow("Session", self.mode)
-        form.addRow("Drone IPv4 address", self.host)
-        form.addRow("Local bind IPv4", self.local)
+        form.addRow(tr("Session"), self.mode)
+        form.addRow(tr("Drone IPv4 address"), self.host)
+        form.addRow(tr("Local bind IPv4"), self.local)
         layout.addLayout(form)
         hint = QLabel(
             "Connect your computer to TELLO Wi-Fi before choosing live mode.\n"
@@ -375,9 +394,16 @@ class SessionDialog(QDialog):
 
 
 class FlightWindow(QMainWindow):
-    def __init__(self, log_dir, config=None, autostart=True):
+    def __init__(self, log_dir, config=None, autostart=True, ui_language=None, settings=None):
         super().__init__()
         ensure_fonts()
+        self.language_settings = settings if settings is not None else QSettings("TelloFlight", "TelloFlight")
+        set_language(ui_language or preferred_language(self.language_settings))
+        LOG.info("ui_language_selected", extra={"data": {"language": language()}})
+        app = QApplication.instance()
+        if not hasattr(app, "button_translator"):
+            app.button_translator = ButtonTranslator(app)
+            app.installTranslator(app.button_translator)
         self.log_dir = Path(log_dir)
         self.config = config or Connection()
         self.engine = None
@@ -390,7 +416,7 @@ class FlightWindow(QMainWindow):
         self._log_lines = []
         self._log_dialog = None
         self._log_view = None
-        self.setWindowTitle("Tello Flight · Local flight console")
+        self.setWindowTitle(tr("Tello Flight · Local flight console"))
         self.resize(1280, 850)
         self.setMinimumSize(1024, 740)
         self.setStyleSheet(STYLE)
@@ -410,6 +436,13 @@ class FlightWindow(QMainWindow):
         self.badge.setObjectName("badge")
         header.addWidget(self.badge)
         header.addStretch()
+        self.language_selector = QComboBox()
+        self.language_selector.setAccessibleName("Language / Lingua")
+        for code, title in LANGUAGES.items():
+            self.language_selector.addItem(title, code)
+        self.language_selector.setCurrentIndex(self.language_selector.findData(language()))
+        self.language_selector.currentIndexChanged.connect(self.change_language)
+        header.addWidget(self.language_selector)
         self.session_button = button("Session settings", self.session_dialog, "ghost")
         header.addWidget(self.session_button)
         self.connect_button = button("Connect", self.toggle_connection)
@@ -433,11 +466,11 @@ class FlightWindow(QMainWindow):
         self.tabs.setStyleSheet(
             "QTabWidget::pane { border:0; } QTabBar::tab { background:#14212b; color:#91a8b8; padding:9px 24px; margin-right:6px; border-radius:6px; } QTabBar::tab:selected { color:#6de5d2; background:#1c3739; }"
         )
-        self.tabs.addTab(self.camera, "Fly")
+        self.tabs.addTab(self.camera, tr("Fly"))
         self.program_panel = ProgramPanel()
         self.program_panel.run_requested.connect(self.run_program)
         self.program_panel.stop_requested.connect(self.stop_program)
-        self.tabs.addTab(self.program_panel, "Program with cards")
+        self.tabs.addTab(self.program_panel, tr("Program with cards"))
         self.tabs.currentChanged.connect(lambda *_: self.release_input())
         layout.addWidget(self.tabs, 1)
         self.camera.left.changed.connect(lambda *_: self.send_intent())
@@ -488,6 +521,22 @@ class FlightWindow(QMainWindow):
     def application_state(self, state):
         if state != Qt.ApplicationState.ApplicationActive:
             self.release_input()
+
+    def change_language(self, index):
+        code = self.language_selector.itemData(index)
+        set_language(code)
+        self.language_settings.setValue("language", code)
+        self.release_input()
+        self.setWindowTitle(tr("Tello Flight · Local flight console"))
+        retranslate_widgets(self)
+        self.tabs.setTabText(0, tr("Fly"))
+        self.tabs.setTabText(1, tr("Program with cards"))
+        for joystick in (self.camera.left, self.camera.right):
+            joystick.setToolTip(tr("Hold and drag to move. Release to center."))
+        self.program_panel.retranslate()
+        self.camera.update()
+        self.refresh()
+        LOG.info("language_changed", extra={"data": {"language": code}})
 
     def release_input(self):
         self.keys.clear()
@@ -636,8 +685,11 @@ class FlightWindow(QMainWindow):
                 and QMessageBox.question(
                     self,
                     "Run flight program",
-                    f"Run {len(cards)} cards on the real Tello?\nCheck the whole route is clear and keep the drone in sight.\n"
-                    "Stop & land discards remaining cards. Flip cards need extra clearance.",
+                    tr(
+                        "Run {count} cards on the real Tello?\nCheck the whole route is clear and keep the drone in sight.\n"
+                        "Stop & land discards remaining cards. Flip cards need extra clearance.",
+                        count=len(cards),
+                    ),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
                     QMessageBox.StandardButton.Cancel,
                 )
@@ -706,17 +758,17 @@ class FlightWindow(QMainWindow):
     def _collect_events(self):
         if not self.engine:
             return
-        for timestamp, message in self.engine.events():
-            line = datetime.fromtimestamp(timestamp).strftime("%H:%M:%S") + "  " + message
+        for timestamp, event_text in self.engine.events():
+            line = datetime.fromtimestamp(timestamp).strftime("%H:%M:%S") + "  " + event_text
             self._log_lines.append(line)
             if self._log_view is not None:
-                self._log_view.appendPlainText(line)
+                self._log_view.appendPlainText(message(line))
         self._log_lines = self._log_lines[-500:]
 
     def show_logs(self):
         self.release_input()
         dialog = QDialog(self)
-        dialog.setWindowTitle("Flight log & diagnostics")
+        dialog.setWindowTitle(tr("Flight log & diagnostics"))
         dialog.resize(820, 520)
         layout = QVBoxLayout(dialog)
         label = QLabel("Persistent logs: " + str(self.log_dir))
@@ -726,7 +778,7 @@ class FlightWindow(QMainWindow):
         view = QPlainTextEdit()
         view.setReadOnly(True)
         view.setMaximumBlockCount(500)
-        view.setPlainText("\n".join(self._log_lines))
+        view.setPlainText("\n".join(message(line) for line in self._log_lines))
         layout.addWidget(view)
         row = QHBoxLayout()
         if self.config.simulator:
@@ -801,7 +853,7 @@ class FlightWindow(QMainWindow):
         self.battery_label.setText(f"BAT  {state.telemetry.battery:.0f}%" if fresh else "BAT  —")
         temp = state.telemetry.values.get("temph")
         self.temp_label.setText(f"TEMP  {temp:.0f}°C" if fresh and temp is not None else "TEMP  —")
-        self.age_label.setText(f"DATA  {age:.1f}s" if state.telemetry.received_at else "DATA  —")
+        self.age_label.setText(f"DATA  {number(age)}s" if state.telemetry.received_at else "DATA  —")
         self.takeoff.setEnabled(
             ready and state.flight == "grounded" and state.telemetry.battery >= 25 and not program_running
         )

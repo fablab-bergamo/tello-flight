@@ -5,6 +5,9 @@
 Tello Flight is a local Windows/Linux application with a camera-centered interface inspired by
 the official Tello app. The same Python control engine and Qt interface run on both platforms.
 
+The interface is available in **English and Italian**. Select a language in the top bar; the choice is
+remembered. [Guida in italiano](it/index.md).
+
 Start with the built-in simulator: virtual joysticks, keyboard controls, telemetry, and diagnostic export
 work without a drone. The preview is a generated scene clearly labeled as simulation.
 

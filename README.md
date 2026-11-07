@@ -7,6 +7,11 @@ an official-app-inspired camera view, Mode 2 joysticks, keyboard controls, and p
 [Releases](https://github.com/fablab-bergamo/tello-flight/releases) ·
 [CI builds](https://github.com/fablab-bergamo/tello-flight/actions/workflows/checks.yml)
 
+**English / Italiano:** use the language selector at the top of the application. The choice is remembered;
+on first launch the application follows the system language (Italian or English). You can override it with
+`--language it` or `--language en`. Switching languages preserves the current cards and their parameters.
+See the [Italian guide](website/it/index.md).
+
 **Status: initial implementation. Simulator and local transport tests are available; no physical drone
 has been used to validate this build.** Do not treat simulator results as flight certification.
 

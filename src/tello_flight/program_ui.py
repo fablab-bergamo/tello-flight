@@ -6,16 +6,12 @@ from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QLayout,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QProgressBar,
-    QPushButton,
     QScrollArea,
     QSpinBox,
     QStyledItemDelegate,
@@ -23,6 +19,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import FileDialog as QFileDialog
+from .i18n import MessageBox as QMessageBox
+from .i18n import TextButton as QPushButton
+from .i18n import TextLabel as QLabel
+from .i18n import message, number, tr
 from .model import ProgramProgress
 from .program import SPECS, Card, example_program, load_program, save_program, validate_program
 
@@ -74,7 +75,7 @@ class CardDelegate(QStyledItemDelegate):
         p.drawText(
             title,
             Qt.AlignmentFlag.AlignVCenter,
-            p.fontMetrics().elidedText(spec.title, Qt.TextElideMode.ElideRight, int(title.width())),
+            p.fontMetrics().elidedText(tr(spec.title), Qt.TextElideMode.ElideRight, int(title.width())),
         )
         p.setFont(QFont("Segoe UI", 8))
         p.setPen(QColor("#92a9b7"))
@@ -88,7 +89,7 @@ class CardDelegate(QStyledItemDelegate):
         p.drawText(
             QRectF(rect.left() + 64, rect.top() + 43, rect.width() - 150, 20),
             Qt.AlignmentFlag.AlignVCenter,
-            subtitle,
+            message(subtitle),
         )
         p.setPen(QColor(spec.color))
         p.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
@@ -134,7 +135,7 @@ class ProgramPanel(QWidget):
             )
             control.setStyleSheet(f"text-align:left; border-left:3px solid {spec.color}; padding:9px 12px;")
             control.setToolTip(
-                f"{spec.minimum}–{spec.maximum} {spec.unit}" if spec.default is not None else spec.title
+                f"{spec.minimum}–{spec.maximum} {spec.unit}" if spec.default is not None else tr(spec.title)
             )
             choices.addWidget(control)
             self.palette_buttons[kind] = control
@@ -261,6 +262,16 @@ class ProgramPanel(QWidget):
 
     def cards(self):
         return tuple(self.queue.item(i).data(ROLE) for i in range(self.queue.count()))
+
+    def retranslate(self):
+        for kind, control in self.palette_buttons.items():
+            spec = SPECS[kind]
+            control.setToolTip(
+                f"{spec.minimum}–{spec.maximum} {spec.unit}" if spec.default is not None else tr(spec.title)
+            )
+        self.selection_changed()
+        self.update_controls()
+        self.queue.viewport().update()
 
     def add_card(self, card, row=None):
         if self._busy:
@@ -399,7 +410,7 @@ class ProgramPanel(QWidget):
         self.position.setVisible(simulator)
         data = state.telemetry.values
         self.position.setText(
-            f"SIMULATOR POSITION\nX {data.get('sim_x', 0) / 100:.1f} m   Y {data.get('sim_y', 0) / 100:.1f} m\nHeading {data.get('yaw', 0):.0f}°"
+            f"SIMULATOR POSITION\nX {number(data.get('sim_x', 0) / 100)} m   Y {number(data.get('sim_y', 0) / 100)} m\nHeading {data.get('yaw', 0):.0f}°"
         )
         self.update_controls()
         self.queue.viewport().update()

@@ -10,6 +10,13 @@ are required; an archive is not a universal static Linux binary.
 
 For development, follow the source installation commands in the repository README.
 
+## Language
+
+Choose **English** or **Italiano** from the selector in the top bar. Labels, command cards, parameter
+settings, flight confirmations and status messages update immediately. Your cards remain in place.
+The language is remembered for the next launch. On first launch an Italian system uses Italian;
+other systems use English. `--language it` and `--language en` override the initial choice for that launch.
+
 ## Try the simulator
 
 The application starts connected to a simulated drone. Click **Take off**, then hold W/S for altitude,

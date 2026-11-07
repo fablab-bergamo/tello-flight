@@ -53,6 +53,11 @@ def main(argv=None):
     parser.add_argument("--log-dir", type=Path, help="Override the persistent log directory")
     parser.add_argument("--screenshot", type=Path, help="Save a simulator UI preview and exit")
     parser.add_argument("--program", action="store_true", help="Open the command-card editor")
+    parser.add_argument(
+        "--language",
+        choices=("en", "it"),
+        help="Interface language (default: saved choice or system language)",
+    )
     args = parser.parse_args(argv)
     import ipaddress
 
@@ -79,7 +84,7 @@ def main(argv=None):
     app = QApplication([sys.argv[0]])
     app.setApplicationName("Tello Flight")
     app.setOrganizationName("TelloFlight")
-    window = FlightWindow(log_dir, config)
+    window = FlightWindow(log_dir, config, ui_language=args.language)
     if args.program:
         window.tabs.setCurrentIndex(1)
     window.show()

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tello-flight"
-version = "0.1.0b2"
+version = "0.1.0b3"
 description = "A local Tello flight console for Windows and Linux"
 requires-python = ">=3.10"
 dependencies = ["PySide6-Essentials>=6.7,<7", "av>=12,<17"]
