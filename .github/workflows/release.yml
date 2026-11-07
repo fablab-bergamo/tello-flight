@@ -26,8 +26,15 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0
       - run: python -m pip install -e ".[dev]"
+      - run: python -m ruff check src tests scripts
       - run: python -m pytest -q
       - run: python scripts/build.py
+      - name: Smoke test Windows package
+        if: runner.os == 'Windows'
+        run: ./dist/TelloFlight/TelloFlight.exe --diagnose --seconds 2
+      - name: Smoke test Linux package
+        if: runner.os == 'Linux'
+        run: ./dist/TelloFlight/TelloFlight --diagnose --seconds 2
       - name: Archive Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -46,6 +53,7 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
@@ -57,4 +65,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" packages/* --generate-notes --title "Tello Flight $GITHUB_REF_NAME"
+        shell: bash
+        run: |
+          release_flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" packages/* --verify-tag \
+            --notes-file "release-notes/$GITHUB_REF_NAME.md" \
+            --title "Tello Flight $GITHUB_REF_NAME" "${release_flags[@]}"

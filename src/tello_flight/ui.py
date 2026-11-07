@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import __version__
 from .diagnostics import SESSION, export_bundle
 from .engine import TELEMETRY_TIMEOUT, FlightEngine
 from .model import Connection, FlightState
@@ -446,7 +447,7 @@ class FlightWindow(QMainWindow):
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
         footer = QHBoxLayout()
-        hint = QLabel("LOCAL FLIGHT CONSOLE   /   v0.1.0   /   " + SESSION)
+        hint = QLabel("LOCAL FLIGHT CONSOLE   /   v" + __version__ + "   /   " + SESSION)
         hint.setObjectName("muted")
         footer.addWidget(hint)
         footer.addStretch()
