@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tello-flight"
+version = "0.1.0"
+description = "A local Tello flight console for Windows and Linux"
+requires-python = ">=3.10"
+dependencies = ["PySide6-Essentials>=6.7,<7", "av>=12,<17"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.9", "pyinstaller>=6,<7", "mkdocs>=1.6,<2"]
+
+[project.scripts]
+tello-flight = "tello_flight.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "SIM"]

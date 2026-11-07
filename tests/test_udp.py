@@ -1,0 +1,51 @@
+import socket
+import threading
+import time
+
+from tello_flight.engine import FlightEngine
+from tello_flight.model import Connection
+
+
+def test_real_udp_handshake_telemetry_and_clean_shutdown():
+    command = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    command.bind(("127.0.0.1", 0))
+    command.settimeout(0.03)
+    reserve = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    reserve.bind(("127.0.0.1", 0))
+    state_port = reserve.getsockname()[1]
+    reserve.close()
+    stop = threading.Event()
+    commands = []
+
+    def drone():
+        while not stop.is_set():
+            try:
+                data, peer = command.recvfrom(1024)
+                commands.append(data.decode())
+                command.sendto(b"86" if data == b"battery?" else b"ok", peer)
+            except TimeoutError:
+                pass
+            command.sendto(b"bat:86;h:0;temph:36;", ("127.0.0.1", state_port))
+
+    worker = threading.Thread(target=drone)
+    worker.start()
+    config = Connection(False, "127.0.0.1", command.getsockname()[1], "127.0.0.1", state_port)
+    engine = FlightEngine(config)
+    engine.start()
+    try:
+        end = time.monotonic() + 2
+        while time.monotonic() < end:
+            state = engine.snapshot()
+            if state.mode == "ready" and state.telemetry.battery == 86:
+                break
+            time.sleep(0.02)
+        assert state.mode == "ready"
+        assert state.telemetry.battery == 86
+        assert commands[0] == "command"
+        assert not {"takeoff", "land", "emergency"}.intersection(commands)
+    finally:
+        engine.close(force=True)
+        stop.set()
+        worker.join(timeout=1)
+        command.close()
+    assert not engine._thread.is_alive()

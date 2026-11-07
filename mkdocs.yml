@@ -1,0 +1,16 @@
+site_name: Tello Flight
+site_url: https://fablab-bergamo.github.io/tello-flight/
+repo_url: https://github.com/fablab-bergamo/tello-flight
+site_description: Local Tello flight control for Windows and Linux
+docs_dir: website
+theme:
+  name: mkdocs
+  color_mode: dark
+  nav_style: dark
+nav:
+  - Overview: index.md
+  - Getting started: getting-started.md
+  - Debugging together: debugging.md
+  - Tests: testing.md
+  - Architecture: architecture.md
+  - Downloads: downloads.md
