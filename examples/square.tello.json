@@ -1,0 +1,17 @@
+{
+  "format": "tello-flight-program",
+  "version": 1,
+  "cards": [
+    {"kind": "takeoff", "value": null},
+    {"kind": "speed", "value": 30},
+    {"kind": "forward", "value": 100},
+    {"kind": "cw", "value": 90},
+    {"kind": "forward", "value": 100},
+    {"kind": "cw", "value": 90},
+    {"kind": "forward", "value": 100},
+    {"kind": "cw", "value": 90},
+    {"kind": "forward", "value": 100},
+    {"kind": "cw", "value": 90},
+    {"kind": "land", "value": null}
+  ]
+}

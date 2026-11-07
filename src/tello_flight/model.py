@@ -52,12 +52,23 @@ class Telemetry:
 
 
 @dataclass
+class ProgramProgress:
+    status: str = "idle"
+    index: int = -1
+    total: int = 0
+    completed: int = 0
+    detail: str = "Build a flight by adding command cards."
+    cards: list[dict] = field(default_factory=list)
+
+
+@dataclass
 class FlightState:
     mode: str = "disconnected"
     flight: str = "grounded"
     telemetry: Telemetry = field(default_factory=Telemetry)
     streaming: bool = False
     message: str = "Choose simulator or connect to your Tello."
+    program: ProgramProgress = field(default_factory=ProgramProgress)
 
 
 def clamp_channels(channels):

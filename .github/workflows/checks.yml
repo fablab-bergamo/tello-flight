@@ -1,6 +1,7 @@
 name: Checks and portable builds
 on:
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
@@ -26,6 +27,7 @@ jobs:
       - run: python -m mkdocs build --strict
       - run: python -m tello_flight --diagnose --seconds 2 --bundle artifacts/simulator-debug.zip
       - run: python -m tello_flight --screenshot artifacts/console.png
+      - run: python -m tello_flight --program --screenshot artifacts/program.png
       - run: python scripts/build.py
       - name: Smoke test bundled runtime (Windows)
         if: runner.os == 'Windows'

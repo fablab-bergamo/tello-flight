@@ -3,7 +3,8 @@
 Application packages are distributed through **this repository's GitHub Releases**. GitHub Pages hosts
 documentation and points to those release assets; the executable runs locally.
 
-The first beta is [v0.1.0-beta.1](https://github.com/fablab-bergamo/tello-flight/releases/tag/v0.1.0-beta.1).
+The current beta is [v0.1.0-beta.2](https://github.com/fablab-bergamo/tello-flight/releases/tag/v0.1.0-beta.2),
+which adds a command-card programming editor with adjustable parameters.
 It is intended for simulator testing and initial hardware evaluation. Physical drone validation remains pending.
 
 When a release exists, download:

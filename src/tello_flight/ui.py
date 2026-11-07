@@ -15,10 +15,12 @@ from PySide6.QtGui import (
     QFontDatabase,
     QImage,
     QKeyEvent,
+    QKeySequence,
     QLinearGradient,
     QPainter,
     QPen,
     QPolygonF,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -34,6 +36,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -42,6 +45,8 @@ from . import __version__
 from .diagnostics import SESSION, export_bundle
 from .engine import TELEMETRY_TIMEOUT, FlightEngine
 from .model import Connection, FlightState
+from .program import validate_program
+from .program_ui import ProgramPanel
 from .video import VideoReceiver
 
 LOG = logging.getLogger(__name__)
@@ -58,6 +63,7 @@ def ensure_fonts():
             fonts / "segoeui.ttf",
             fonts / "segoeuib.ttf",
             fonts / "segoeuil.ttf",
+            fonts / "seguisym.ttf",
             Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
         ):
             if path.is_file():
@@ -75,7 +81,9 @@ QPushButton:pressed { background: #315961; }
 QPushButton:disabled { color: #65747d; border-color: #26333e; background: #15202a; }
 QPushButton#primary { color: #092923; background: #6de5d2; border: 0; font-weight: 700; }
 QPushButton#primary:hover { background: #9df1e4; }
+QPushButton#primary:disabled { background:#203d3a; color:#708e89; }
 QPushButton#danger { color: #ffaaa7; background: #302027; border-color: #69383e; }
+QPushButton#danger:disabled { color:#80666a; background:#211d25; border-color:#3d3037; }
 QPushButton#ghost { background: transparent; }
 QLabel#muted { color: #8295a4; font-size: 11px; }
 QLabel#badge { color: #6de5d2; background: #18332f; border-radius: 5px; padding: 6px 10px;
@@ -84,6 +92,10 @@ QLineEdit, QComboBox, QPlainTextEdit { background: #16232e; border: 1px solid #3
                                    border-radius: 6px; padding: 8px; }
 QComboBox QAbstractItemView { background: #16232e; selection-background-color: #315961; }
 QDialogButtonBox QPushButton { min-width: 70px; }
+QScrollBar:vertical { background:#101923; width:10px; margin:0; }
+QScrollBar::handle:vertical { background:#405661; min-height:24px; border-radius:4px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:transparent; }
 """
 
 
@@ -382,6 +394,8 @@ class FlightWindow(QMainWindow):
         self.resize(1280, 850)
         self.setMinimumSize(1024, 740)
         self.setStyleSheet(STYLE)
+        self.stop_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+        self.stop_shortcut.activated.connect(self.hover_now)
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
@@ -415,7 +429,17 @@ class FlightWindow(QMainWindow):
             status.addWidget(label)
         layout.addLayout(status)
         self.camera = CameraView()
-        layout.addWidget(self.camera, 1)
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet(
+            "QTabWidget::pane { border:0; } QTabBar::tab { background:#14212b; color:#91a8b8; padding:9px 24px; margin-right:6px; border-radius:6px; } QTabBar::tab:selected { color:#6de5d2; background:#1c3739; }"
+        )
+        self.tabs.addTab(self.camera, "Fly")
+        self.program_panel = ProgramPanel()
+        self.program_panel.run_requested.connect(self.run_program)
+        self.program_panel.stop_requested.connect(self.stop_program)
+        self.tabs.addTab(self.program_panel, "Program with cards")
+        self.tabs.currentChanged.connect(lambda *_: self.release_input())
+        layout.addWidget(self.tabs, 1)
         self.camera.left.changed.connect(lambda *_: self.send_intent())
         self.camera.right.changed.connect(lambda *_: self.send_intent())
         toolbar = QHBoxLayout()
@@ -475,6 +499,9 @@ class FlightWindow(QMainWindow):
     def send_intent(self):
         if not self.engine:
             return
+        if self.tabs.currentIndex() == 1 or self.engine.snapshot().program.status == "running":
+            self.engine.operator()
+            return
         k = self.keys
 
         def axis(positive, negative):
@@ -494,6 +521,10 @@ class FlightWindow(QMainWindow):
             return
         if event.key() == Qt.Key.Key_Space:
             self.hover_now()
+        elif self.tabs.currentIndex() == 1 or (
+            self.engine and self.engine.snapshot().program.status == "running"
+        ):
+            super().keyPressEvent(event)
         elif event.key() in (
             Qt.Key.Key_W,
             Qt.Key.Key_S,
@@ -591,6 +622,36 @@ class FlightWindow(QMainWindow):
 
     def hover_now(self):
         self.release_input()
+        if self.engine and self.engine.snapshot().program.status == "running":
+            self.engine.stop_program()
+
+    def run_program(self, cards):
+        self.release_input()
+        if not self.engine:
+            return
+        try:
+            cards = validate_program(cards)
+            if (
+                not self.config.simulator
+                and QMessageBox.question(
+                    self,
+                    "Run flight program",
+                    f"Run {len(cards)} cards on the real Tello?\nCheck the whole route is clear and keep the drone in sight.\n"
+                    "Stop & land discards remaining cards. Flip cards need extra clearance.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                != QMessageBox.StandardButton.Yes
+            ):
+                return
+            self.engine.run_program(cards)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Program cannot run", str(exc))
+
+    def stop_program(self):
+        self.release_input()
+        if self.engine:
+            self.engine.stop_program()
 
     def motor_cut(self):
         self.release_input()
@@ -719,6 +780,10 @@ class FlightWindow(QMainWindow):
         age = time.monotonic() - state.telemetry.received_at
         fresh = age < TELEMETRY_TIMEOUT
         ready = state.mode == "ready" and fresh
+        program_running = state.program.status == "running"
+        self.program_panel.set_state(state, ready, self.config.simulator)
+        self.session_button.setEnabled(not program_running)
+        self.connect_button.setEnabled(not program_running)
         self.link_label.setText(
             "●  "
             + (
@@ -737,17 +802,19 @@ class FlightWindow(QMainWindow):
         temp = state.telemetry.values.get("temph")
         self.temp_label.setText(f"TEMP  {temp:.0f}°C" if fresh and temp is not None else "TEMP  —")
         self.age_label.setText(f"DATA  {age:.1f}s" if state.telemetry.received_at else "DATA  —")
-        self.takeoff.setEnabled(ready and state.flight == "grounded" and state.telemetry.battery >= 25)
+        self.takeoff.setEnabled(
+            ready and state.flight == "grounded" and state.telemetry.battery >= 25 and not program_running
+        )
         self.land.setEnabled(self.engine is not None and state.mode not in ("disconnected", "connecting"))
-        self.hover.setEnabled(self.engine is not None)
+        self.hover.setEnabled(self.engine is not None and not program_running)
         self.emergency.setEnabled(self.engine is not None)
-        self.video_button.setEnabled(ready and state.flight == "grounded")
+        self.video_button.setEnabled(ready and state.flight == "grounded" and not program_running)
         self.video_button.setText("Camera off" if self.video else "Camera on")
         self.snapshot_button.setEnabled(
             self.camera.frame is not None and time.monotonic() - self.camera.frame_at < 2
         )
-        self.camera.left.setEnabled(ready and state.flight == "airborne")
-        self.camera.right.setEnabled(ready and state.flight == "airborne")
+        self.camera.left.setEnabled(ready and state.flight == "airborne" and not program_running)
+        self.camera.right.setEnabled(ready and state.flight == "airborne" and not program_running)
         self.message.setText(state.message)
         self.camera.state = state
         if self.video:

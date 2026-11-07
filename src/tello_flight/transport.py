@@ -1,6 +1,7 @@
 """Plain UDP transport and a deterministic, hardware-free drone simulator."""
 
 import logging
+import math
 import socket
 import time
 
@@ -62,6 +63,9 @@ class SimulatorTransport:
         self.flying = False
         self.height = 0.0
         self.yaw = 0.0
+        self.x = self.y = 0.0
+        self.speed = 30
+        self.flips = 0
         self.battery = 86.0
         self.rc = (0, 0, 0, 0)
         self.responses = []
@@ -85,9 +89,39 @@ class SimulatorTransport:
         elif command in ("land", "emergency"):
             self.flying, self.height = False, 0.0
             self.rc = (0, 0, 0, 0)
+        elif command.startswith("speed "):
+            self.speed = int(command.split()[1])
+        elif command.startswith("flip "):
+            self.flips += 1
+        else:
+            parts = command.split()
+            if len(parts) == 2 and parts[0] in (
+                "up",
+                "down",
+                "forward",
+                "back",
+                "left",
+                "right",
+                "cw",
+                "ccw",
+            ):
+                kind, distance = parts[0], int(parts[1])
+                if not self.flying:
+                    self.responses.append((now + 0.12, b"error not airborne"))
+                    return
+                if kind in ("cw", "ccw"):
+                    self.yaw = (self.yaw + distance * (1 if kind == "cw" else -1)) % 360
+                elif kind in ("up", "down"):
+                    self.height = max(20, self.height + distance * (1 if kind == "up" else -1))
+                else:
+                    heading = math.radians(self.yaw)
+                    forward = distance * (1 if kind == "forward" else -1 if kind == "back" else 0)
+                    right = distance * (1 if kind == "right" else -1 if kind == "left" else 0)
+                    self.x += forward * math.cos(heading) - right * math.sin(heading)
+                    self.y += forward * math.sin(heading) + right * math.cos(heading)
         response = str(int(self.battery)) if command == "battery?" else "ok"
         if command != "emergency":
-            self.responses.append((now + 0.12, response.encode()))
+            self.responses.append((now + (0.6 if len(command.split()) == 2 else 0.12), response.encode()))
 
     def poll(self):
         if self.signal_lost:
@@ -95,8 +129,14 @@ class SimulatorTransport:
         now = time.monotonic()
         dt, self.last = min(now - self.last, 0.2), now
         if self.flying:
-            self.height = max(20, min(250, self.height + self.rc[2] * dt))
+            self.height = max(20, min(1000, self.height + self.rc[2] * dt))
             self.yaw = (self.yaw + self.rc[3] * dt) % 360
+            self.x += (
+                self.rc[1] * math.cos(math.radians(self.yaw)) - self.rc[0] * math.sin(math.radians(self.yaw))
+            ) * dt
+            self.y += (
+                self.rc[1] * math.sin(math.radians(self.yaw)) + self.rc[0] * math.cos(math.radians(self.yaw))
+            ) * dt
             self.battery = max(0, self.battery - dt * 0.07)
         result = [("response", data) for due, data in self.responses if due <= now]
         self.responses = [(due, data) for due, data in self.responses if due > now]
@@ -106,6 +146,7 @@ class SimulatorTransport:
             payload = (
                 f"bat:{int(self.battery)};h:{int(self.height)};yaw:{self.yaw:.1f};"
                 f"pitch:{-fb / 8};roll:{lr / 8};vgx:{fb};vgy:{lr};vgz:{ud};"
+                f"sim_x:{self.x:.1f};sim_y:{self.y:.1f};sim_flips:{self.flips};"
                 "templ:34;temph:38;tof:80;baro:0;time:0;"
             )
             result.append(("telemetry", payload.encode()))

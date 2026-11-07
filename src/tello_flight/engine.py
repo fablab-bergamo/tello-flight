@@ -5,9 +5,11 @@ import threading
 import time
 from collections import deque
 from copy import deepcopy
+from dataclasses import asdict
 from queue import Empty, Full, Queue
 
-from .model import Connection, FlightState, Telemetry, clamp_channels
+from .model import Connection, FlightState, ProgramProgress, Telemetry, clamp_channels
+from .program import RunProgram, validate_program
 from .transport import SimulatorTransport, UDPTransport
 
 LOG = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ class FlightEngine:
         self._quit = threading.Event()
         self._emergency = threading.Event()
         self._land = threading.Event()
+        self._signal_loss = threading.Event()
         self._thread = None
         self._channels = (0, 0, 0, 0)
         self._intent_at = 0.0
@@ -40,6 +43,12 @@ class FlightEngine:
         self._last_telemetry_log = 0.0
         self._sent_at = 0.0
         self._watchdog_landed = False
+        self._program_cards = ()
+        self._program_cursor = 0
+        self._program_wait_until = None
+        self._program_pending = False
+        self._program_landing = False
+        self._program_landing_deadline = 0.0
 
     def snapshot(self):
         with self._lock:
@@ -84,13 +93,31 @@ class FlightEngine:
         elif command == "land":
             self.neutral()
             self._land.set()
-        elif command in ("takeoff", "streamon", "streamoff", "battery?", "simulate_link_loss"):
+        elif command == "simulate_link_loss":
+            if self.config.simulator:
+                self._signal_loss.set()
+        elif command in ("takeoff", "streamon", "streamoff", "battery?"):
+            if self.snapshot().program.status == "running":
+                self._event("Manual command rejected while a program is running")
+                return
             try:
                 self._requests.put_nowait(command)
             except Full:
                 self._event("Command queue full; request rejected")
         else:
             raise ValueError("Unsupported command")
+
+    def run_program(self, cards):
+        cards = validate_program(cards)
+        if self.snapshot().program.status == "running":
+            raise ValueError("A program is already running")
+        try:
+            self._requests.put_nowait(RunProgram(cards))
+        except Full as exc:
+            raise ValueError("Command queue full; try again") from exc
+
+    def stop_program(self):
+        self.request("land")
 
     def close(self, force=False):
         state = self.snapshot()
@@ -108,14 +135,15 @@ class FlightEngine:
             except Empty:
                 return
 
-    def _send(self, command, now):
+    def _send(self, command, now, timeout=None):
         self.transport.send(command)
         self._sent_at = now
         self._event(f"Sent: {command}")
-        timeout = 12 if command in ("takeoff", "land") else 5
+        timeout = timeout if timeout is not None else (12 if command in ("takeoff", "land") else 5)
         self._pending = (command, now + timeout)
 
     def _uncertain(self, message):
+        self._finish_program("failed", message)
         self._fault = True
         self._pending = None
         self._clear_requests()
@@ -126,12 +154,109 @@ class FlightEngine:
         self._update(**changes)
         self._event(message)
 
+    def _finish_program(self, status, detail):
+        if not self._program_cards:
+            return
+        progress = self.snapshot().program
+        progress.status, progress.detail = status, detail
+        self._update(program=progress)
+        self._program_cards = ()
+        self._program_pending = self._program_landing = False
+        self._program_wait_until = None
+        LOG.info("program_finished", extra={"data": asdict(progress)})
+        self._event(detail)
+
+    def _complete_card(self):
+        self._program_cursor += 1
+        self._program_pending = self._program_landing = False
+        self._program_wait_until = None
+        progress = self.snapshot().program
+        progress.completed = self._program_cursor
+        self._update(program=progress)
+        LOG.info("program_card_completed", extra={"data": {"index": self._program_cursor - 1}})
+        if self._program_cursor == len(self._program_cards):
+            self._finish_program("completed", "Program complete — all cards finished")
+
+    def _start_program(self, cards, now):
+        state = self.snapshot()
+        progress = ProgramProgress(status="running", total=len(cards), cards=[asdict(c) for c in cards])
+        reason = ""
+        if state.mode != "ready" or state.flight != "grounded":
+            reason = "Connect and land before running a program"
+        elif now - state.telemetry.received_at > TELEMETRY_TIMEOUT or state.telemetry.battery < 25:
+            reason = "Need fresh telemetry and at least 25% battery"
+        elif now - self._operator_at > OPERATOR_TIMEOUT:
+            reason = "Keep the application in focus before running"
+        elif any(c.kind.startswith("flip_") for c in cards) and state.telemetry.battery < 50:
+            reason = "Flip cards require at least 50% battery"
+        if reason:
+            progress.status, progress.detail = "failed", reason
+            self._update(program=progress)
+            self._event(reason)
+            return
+        self._clear_requests()
+        self.neutral()
+        self._watchdog_landed = False
+        self._program_cards = cards
+        self._program_cursor = 0
+        self._program_wait_until = None
+        self._program_pending = self._program_landing = False
+        self._update(program=progress)
+        LOG.info("program_started", extra={"data": {"cards": progress.cards}})
+        self._event(f"Program started — {len(cards)} cards")
+
+    def _advance_program(self, now):
+        if self._pending or not self._program_cards:
+            return
+        state = self.snapshot()
+        if state.telemetry.battery < 15:
+            self._uncertain("Low battery: program aborted; landing requested")
+            return
+        if self._program_landing:
+            if state.flight == "grounded":
+                self._complete_card()
+            elif now > self._program_landing_deadline:
+                self._uncertain("Landing not confirmed by telemetry; program aborted")
+            return
+        if self._program_wait_until is not None:
+            if now >= self._program_wait_until:
+                self._complete_card()
+            elif now - self._last_rc >= 0.05:
+                self.transport.send("rc 0 0 0 0")
+                self._last_rc = now
+            return
+        card = self._program_cards[self._program_cursor]
+        progress = state.program
+        progress.index, progress.detail = self._program_cursor, card.label
+        self._update(program=progress)
+        LOG.info("program_card_started", extra={"data": {"index": self._program_cursor, **asdict(card)}})
+        self._event(f"Card {self._program_cursor + 1}/{len(self._program_cards)}: {card.label}")
+        if card.kind.startswith("flip_") and state.telemetry.battery < 50:
+            self._uncertain("Battery below 50%: flip cancelled; program aborted")
+            return
+        if card.kind == "wait":
+            self._program_wait_until = now + card.value
+            self.transport.send("rc 0 0 0 0")
+            self._last_rc = now
+            return
+        if card.kind == "takeoff":
+            self._update(flight="taking off")
+        elif card.kind == "land":
+            self._update(flight="landing")
+            self._program_landing_deadline = now + card.timeout
+        elif state.flight != "airborne":
+            self._uncertain("Drone is not airborne: program aborted")
+            return
+        self._program_pending = True
+        self._send(card.command, now, card.timeout)
+
     def _response(self, data):
         response = data.decode("ascii", errors="replace").strip()
         if self._fault or not self._pending:
             LOG.debug("unmatched_response", extra={"data": {"payload": response}})
             return  # Late/unmatched replies must never complete another action.
         command, _ = self._pending
+        program_command = self._program_pending
         LOG.info(
             "command_result",
             extra={
@@ -145,7 +270,9 @@ class FlightEngine:
         self._pending = None
         self._event(f"{command}: {response}")
         if response.lower() != "ok" and command != "battery?":
-            if command == "command":
+            if program_command:
+                self._uncertain(f"Card rejected ({command}: {response}); program aborted")
+            elif command == "command":
                 self._uncertain("SDK handshake rejected; reconnect")
             elif command in ("takeoff", "land"):
                 self._update(flight="unknown")
@@ -160,9 +287,21 @@ class FlightEngine:
             self._update(flight="landing")
         elif command in ("streamon", "streamoff"):
             self._update(streaming=command == "streamon")
+        if program_command:
+            if command == "land":
+                self._program_landing = True
+            else:
+                self._complete_card()
 
     def _tick(self, now):
+        if self._signal_loss.is_set():
+            self._signal_loss.clear()
+            self.transport.signal_lost = True
+            self._event("Simulator: signal loss injected. Reconnect to restore.")
+        if self._land.is_set():
+            self._finish_program("cancelled", "Program stopped — landing requested")
         if self._emergency.is_set():
+            self._finish_program("cancelled", "Program cancelled by motor cut")
             self._emergency.clear()
             self._land.clear()
             self.transport.send("emergency")
@@ -194,11 +333,20 @@ class FlightEngine:
         age = now - state.telemetry.received_at
         flying = state.flight != "grounded"
         stale = age > TELEMETRY_TIMEOUT
-        if flying and not self._watchdog_landed and (operator_age > OPERATOR_TIMEOUT or stale or self._fault):
+        low_battery = bool(self._program_cards) and state.telemetry.battery < 15
+        if (
+            flying
+            and not self._watchdog_landed
+            and (operator_age > OPERATOR_TIMEOUT or stale or self._fault or low_battery)
+        ):
             self._watchdog_landed = True
             self.transport.send("rc 0 0 0 0")
             self.transport.send("land")
-            self._uncertain("Control/telemetry lost: landing requested once; verify drone physically")
+            self._uncertain(
+                "Low battery: program aborted; landing requested once"
+                if low_battery
+                else "Control/telemetry lost: landing requested once; verify drone physically"
+            )
             return
         if self._land.is_set():
             self._land.clear()
@@ -214,6 +362,9 @@ class FlightEngine:
             return
         if self._fault:
             return
+        if self._program_cards:
+            self._advance_program(now)
+            return
         if flying and now - self._last_rc >= 0.05 and not self._pending:
             self._last_rc = now
             if state.flight == "airborne" and not stale:
@@ -227,10 +378,8 @@ class FlightEngine:
                 self._last_query = now
                 self._send("battery?", now)
             return
-        if command == "simulate_link_loss":
-            if self.config.simulator:
-                self.transport.signal_lost = True
-                self._event("Simulator: signal loss injected. Reconnect to restore.")
+        if isinstance(command, RunProgram):
+            self._start_program(command.cards, now)
             return
         if command == "battery?" and flying:
             self._event("Battery query skipped during flight; use telemetry")
@@ -273,6 +422,7 @@ class FlightEngine:
                 except OSError:
                     LOG.warning("failsafe_landing_send_failed", exc_info=True)
         finally:
+            self._finish_program("cancelled", "Program cancelled: session closed")
             if self.snapshot().streaming and self.snapshot().flight == "grounded":
                 try:
                     self.transport.send("streamoff")

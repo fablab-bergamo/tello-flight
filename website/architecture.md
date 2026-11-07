@@ -14,6 +14,8 @@ and telemetry through the same interface. The simulator is not a physics model.
 Only one acknowledged command is outstanding. Normal flight control uses RC channels at up to 20 Hz.
 Manual inputs expire after 350 ms. GUI heartbeats are monitored independently from drone telemetry.
 Flight commands time out after 12 seconds; setup/query commands after 5 seconds.
+Command cards use 15 seconds for takeoff, landing, speed and rotation, and 65 seconds for distance moves
+so that a 500 cm movement at 10 cm/s can complete. Long waits are local timers with neutral RC keepalives.
 
 Movement outcomes are never automatically retried. A timeout quarantines the session; late responses
 are logged and ignored. Reconnect creates a new UDP command source port. Priority landing and motor
@@ -30,7 +32,22 @@ an additional device behavior that must be verified on the actual unit.
 An independent UDP worker parses the incoming H.264 byte stream using PyAV/FFmpeg. A single latest
 RGB frame is shared with the GUI, avoiding an unbounded frame queue. Old frames are marked unavailable.
 Video is enabled/disabled while grounded. Snapshot captures the decoded preview, not the official
-app's full-resolution photo feature. Recording and automatic flight sequences are not implemented.
+app's full-resolution photo feature. Recording is not implemented.
+
+## Sequential programs
+
+`program.py` defines immutable, range-checked cards and a versioned JSON file format. Drafts can be saved
+without valid flight order, but execution requires exactly one Take off at the start and Land at the end.
+There are at most 100 cards. Imported files cannot contain arbitrary SDK text or executable code.
+
+The control worker owns the runner; the GUI does not schedule flight commands. Each acknowledged card
+finishes before the next dispatch. Wait cards use nonblocking timers. Landing completion also requires
+fresh low-height telemetry. Manual RC input is suppressed during a run. Stop, Land and motor cut discard
+remaining cards. A rejection, timeout, stale telemetry, operator loss or critically low battery aborts the
+run. Flip cards require at least 50% battery at preflight and again when dispatched.
+
+Program cards, parameters, active index and completion status are included in state snapshots and
+diagnostic bundles. Start, card dispatch, completion and failures are logged with the session ID.
 
 ## Diagnostics and distribution
 

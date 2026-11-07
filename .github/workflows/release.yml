@@ -31,10 +31,15 @@ jobs:
       - run: python scripts/build.py
       - name: Smoke test Windows package
         if: runner.os == 'Windows'
-        run: ./dist/TelloFlight/TelloFlight.exe --diagnose --seconds 2
+        run: |
+          ./dist/TelloFlight/TelloFlight.exe --diagnose --seconds 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./dist/TelloFlight/TelloFlight.exe --program --screenshot artifacts/program.png
       - name: Smoke test Linux package
         if: runner.os == 'Linux'
-        run: ./dist/TelloFlight/TelloFlight --diagnose --seconds 2
+        run: |
+          ./dist/TelloFlight/TelloFlight --diagnose --seconds 2
+          ./dist/TelloFlight/TelloFlight --program --screenshot artifacts/program.png
       - name: Archive Windows
         if: runner.os == 'Windows'
         shell: pwsh

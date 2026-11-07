@@ -52,6 +52,7 @@ def main(argv=None):
     parser.add_argument("--bundle", type=Path, help="Save a ZIP support bundle after --diagnose")
     parser.add_argument("--log-dir", type=Path, help="Override the persistent log directory")
     parser.add_argument("--screenshot", type=Path, help="Save a simulator UI preview and exit")
+    parser.add_argument("--program", action="store_true", help="Open the command-card editor")
     args = parser.parse_args(argv)
     import ipaddress
 
@@ -79,6 +80,8 @@ def main(argv=None):
     app.setApplicationName("Tello Flight")
     app.setOrganizationName("TelloFlight")
     window = FlightWindow(log_dir, config)
+    if args.program:
+        window.tabs.setCurrentIndex(1)
     window.show()
     if args.screenshot:
 

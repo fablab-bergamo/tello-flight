@@ -33,13 +33,21 @@ The camera scene in simulator mode is generated, not a drone feed.
 
 ## Controls
 
+Open **Program with cards** to build a flight sequence. Add cards from the palette, drag them into order,
+select a card to change its distance/height change, angle, speed or duration, then choose **Run from top**.
+An example is preloaded and works in the simulator. Save/open programs as JSON for classroom exercises.
+Use **Stop & land** (or Space during a program) to discard remaining cards and request landing.
+See the [programming guide](website/programming.md) for the command catalog and SDK limits.
+
+The following keyboard controls apply on the **Fly** tab:
+
 | Input | Action |
 | --- | --- |
 | W / S | Ascend / descend |
 | A / D | Turn left / right |
 | Up / Down | Forward / backward |
 | Left / Right | Strafe left / right |
-| Space | Neutral input / hover |
+| Space | Neutral input / hover; stop and land during a program |
 | Mouse | Hold and drag either Mode 2 joystick; release to center |
 
 Takeoff and land are explicit buttons. Motor cut has a separate confirmation because it stops motors
