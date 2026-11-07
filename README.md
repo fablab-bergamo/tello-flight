@@ -7,6 +7,9 @@ an official-app-inspired camera view, Mode 2 joysticks, keyboard controls, and p
 [Releases](https://github.com/fablab-bergamo/tello-flight/releases) ·
 [CI builds](https://github.com/fablab-bergamo/tello-flight/actions/workflows/checks.yml)
 
+[Session handoff — 7 November 2026](website/session-handoff.md): delivered features, verified release,
+known limits and the first hardware-validation steps.
+
 **English / Italiano:** use the language selector at the top of the application. The choice is remembered;
 on first launch the application follows the system language (Italian or English). You can override it with
 `--language it` or `--language en`. Switching languages preserves the current cards and their parameters.
