@@ -10,6 +10,10 @@ class Transport:
     def __init__(self):
         self.sent = []
         self.incoming = []
+        self.resets = 0
+
+    def reset_command_channel(self):
+        self.resets += 1
 
     def send(self, command):
         self.sent.append(command)
@@ -147,8 +151,92 @@ def test_priority_landing_during_takeoff_quarantines_acknowledgements():
     transport.incoming.append(("response", b"ok"))
     engine._tick(now + 0.2)
     assert transport.sent.count("land") == 1
+    assert engine.snapshot().mode == "landing"
+    assert engine.snapshot().flight == "landing"
+    assert transport.resets == 0
+
+
+def test_interrupted_takeoff_recovers_after_stable_touchdown_and_new_handshake():
+    engine, transport, now = ready()
+
+    def tick(seconds, height, tof, vgz=0, response=None):
+        engine._operator_at = now + seconds
+        transport.incoming.append(("telemetry", f"bat:86;h:{height};tof:{tof};vgz:{vgz};".encode()))
+        if response:
+            transport.incoming.append(("response", response))
+        engine._tick(now + seconds)
+
+    engine.request("takeoff")
+    engine._tick(now)
+    tick(1, 70, 80)
+    engine.request("land")
+    tick(1.1, 70, 80)
+    # A repeated click does not send land again or postpone recovery.
+    engine.request("land")
+    tick(1.2, 70, 80, response=b"ok")
+    assert engine.snapshot().mode == "landing"
+    assert transport.sent.count("land") == 1
+    tick(2, 0, 10)
+    tick(2.5, 30, 40)  # A single low reading cannot confirm touchdown.
+    tick(3, 0, 10)
+    tick(3.5, 0, 10)
+    engine.request("takeoff")  # Requests made while recovering are discarded.
+    tick(4.1, 0, 10, response=b"ok")
+    assert engine.snapshot().mode == "connecting"
+    assert engine.snapshot().flight == "grounded"
+    assert transport.resets == 1
+    assert transport.sent[-1] == "command"
+    assert transport.sent.count("takeoff") == 1
+    tick(4.2, 0, 10, response=b"ok")
+    assert engine.snapshot().mode == "ready"
+    engine.request("takeoff")
+    tick(4.3, 0, 10)
+    assert transport.sent.count("takeoff") == 2
+
+
+@pytest.mark.parametrize("payload", [
+    b"bat:86;h:0;",  # Missing range and vertical speed.
+    b"bat:86;h:0;tof:230;vgz:0;",  # Low reported height while still above the floor.
+    b"bat:86;h:0;tof:10;vgz:20;",  # Still descending.
+])
+def test_priority_landing_does_not_recover_from_unreliable_ground_readings(payload):
+    engine, transport, now = ready()
+    engine._update(flight="airborne", telemetry=Telemetry.parse(b"bat:86;h:70;", now))
+    engine._send("battery?", now)
+    engine.request("land")
+    engine._tick(now)
+    for seconds in (0.1, 1.5):
+        transport.incoming.append(("telemetry", payload))
+        engine._tick(now + seconds)
+    assert engine.snapshot().mode == "landing"
+    assert transport.resets == 0
+
+
+def test_priority_landing_requires_observed_flight_and_has_a_deadline():
+    engine, transport, now = ready()
+    engine.request("takeoff")
+    engine._tick(now)
+    engine.request("land")
+    engine._tick(now + 0.1)
+    for seconds in (1, 2.5, 15.2):
+        transport.incoming.append(("telemetry", b"bat:86;h:0;tof:10;vgz:0;"))
+        engine._tick(now + seconds)
+    assert transport.resets == 0
     assert engine.snapshot().mode == "uncertain"
-    assert engine.snapshot().flight == "unknown"
+    assert "Landing not confirmed" in engine.snapshot().message
+
+
+def test_priority_landing_does_not_count_a_telemetry_gap_as_stable_ground():
+    engine, transport, now = ready()
+    engine._update(flight="airborne", telemetry=Telemetry.parse(b"bat:86;h:70;", now))
+    engine._send("battery?", now)
+    engine.request("land")
+    engine._tick(now)
+    for seconds in (0.1, 4):
+        transport.incoming.append(("telemetry", b"bat:86;h:0;tof:10;vgz:0;"))
+        engine._tick(now + seconds)
+    assert transport.resets == 0
+    assert engine.snapshot().mode == "landing"
 
 
 def test_invalid_command_cannot_reach_transport():

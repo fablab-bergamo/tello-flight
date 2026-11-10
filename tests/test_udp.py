@@ -4,6 +4,37 @@ import time
 
 from tello_flight.engine import FlightEngine
 from tello_flight.model import Connection
+from tello_flight.transport import UDPTransport
+
+
+def test_reset_command_channel_excludes_old_replies_and_preserves_telemetry_socket():
+    drone = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    drone.bind(("127.0.0.1", 0))
+    drone.settimeout(1)
+    config = Connection(False, "127.0.0.1", drone.getsockname()[1], "127.0.0.1", 0)
+    transport = UDPTransport(config)
+    try:
+        transport.open()
+        telemetry_socket = transport.state
+        transport.send("takeoff")
+        _, old_peer = drone.recvfrom(1024)
+        drone.sendto(b"ok", old_peer)  # Already queued on the old command socket.
+        transport.reset_command_channel()
+        assert transport.state is telemetry_socket
+        transport.send("command")
+        _, new_peer = drone.recvfrom(1024)
+        assert old_peer != new_peer
+        assert transport.poll() == []
+        drone.sendto(b"new handshake", new_peer)
+        deadline = time.monotonic() + 1
+        messages = []
+        while not messages and time.monotonic() < deadline:
+            messages = transport.poll()
+            time.sleep(0.01)
+        assert messages == [("response", b"new handshake")]
+    finally:
+        transport.close()
+        drone.close()
 
 
 def test_real_udp_handshake_telemetry_and_clean_shutdown():

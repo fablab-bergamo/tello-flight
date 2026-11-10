@@ -16,6 +16,8 @@ LOG = logging.getLogger(__name__)
 INPUT_LEASE = 0.35
 OPERATOR_TIMEOUT = 2.0
 TELEMETRY_TIMEOUT = 3.0
+LANDING_SETTLE_TIME = 1.0
+PRIORITY_LANDING_TIMEOUT = 15.0
 
 
 class FlightEngine:
@@ -49,6 +51,9 @@ class FlightEngine:
         self._program_pending = False
         self._program_landing = False
         self._program_landing_deadline = 0.0
+        self._priority_landing_deadline = 0.0
+        self._landing_airborne_seen = False
+        self._landing_ground_since = None
 
     def snapshot(self):
         with self._lock:
@@ -143,6 +148,7 @@ class FlightEngine:
         self._pending = (command, now + timeout)
 
     def _uncertain(self, message):
+        self._priority_landing_deadline = 0.0
         self._finish_program("failed", message)
         self._fault = True
         self._pending = None
@@ -153,6 +159,23 @@ class FlightEngine:
             changes["flight"] = "unknown"
         self._update(**changes)
         self._event(message)
+
+    def _observe_priority_landing(self, telemetry, now):
+        if telemetry.height > 0.2:
+            self._landing_airborne_seen = True
+        # Height alone can read zero before takeoff or near the floor. Require
+        # an observed flight followed by sustained low range and vertical speed.
+        grounded = (
+            self._landing_airborne_seen
+            and 0 <= telemetry.height <= 0.1
+            and 0 < telemetry.values.get("tof", 1000) <= 20
+            and abs(telemetry.values.get("vgz", 1000)) <= 5
+        )
+        if not grounded:
+            self._landing_ground_since = None
+            return
+        if self._landing_ground_since is None:
+            self._landing_ground_since = now
 
     def _finish_program(self, status, detail):
         if not self._program_cards:
@@ -294,6 +317,8 @@ class FlightEngine:
                 self._complete_card()
 
     def _tick(self, now):
+        if self._priority_landing_deadline:
+            self._land.clear()  # The first request already initiated landing.
         if self._signal_loss.is_set():
             self._signal_loss.clear()
             self.transport.signal_lost = True
@@ -315,13 +340,37 @@ class FlightEngine:
             else:
                 telemetry = Telemetry.parse(data, now)
                 if telemetry:
+                    previous = self.snapshot().telemetry
                     self._update(telemetry=telemetry)
                     if now - self._last_telemetry_log >= 1:
                         self._last_telemetry_log = now
                         LOG.debug("telemetry", extra={"data": telemetry.values})
-                    if self.snapshot().flight == "landing" and telemetry.height <= 0.1 and not self._pending:
+                    if self._priority_landing_deadline:
+                        if now - previous.received_at > TELEMETRY_TIMEOUT:
+                            self._landing_ground_since = None
+                        self._observe_priority_landing(telemetry, now)
+                    elif self.snapshot().flight == "landing" and telemetry.height <= 0.1 and not self._pending:
                         self._update(flight="grounded")
         state = self.snapshot()
+        if (
+            self._priority_landing_deadline
+            and now < self._priority_landing_deadline
+            and self._landing_ground_since is not None
+            and state.telemetry.received_at - self._landing_ground_since >= LANDING_SETTLE_TIME
+        ):
+            # Drain this entire poll before replacing the socket: none of its
+            # old replies may acknowledge the new handshake.
+            self.transport.reset_command_channel()
+            self._priority_landing_deadline = 0.0
+            self._fault = False
+            self._clear_requests()
+            self._update(mode="connecting", flight="grounded")
+            self._event("Landing observed; restoring command connection")
+            self._send("command", now)
+            state = self.snapshot()
+        if self._priority_landing_deadline and now >= self._priority_landing_deadline:
+            self._uncertain("Landing not confirmed; inspect drone and reconnect")
+            state = self.snapshot()
         if self._pending and now >= self._pending[1]:
             self._uncertain(
                 f"{self._pending[0]} timed out; outcome unknown. Reconnect before further flight."
@@ -351,8 +400,20 @@ class FlightEngine:
         if self._land.is_set():
             self._land.clear()
             self._clear_requests()
+            if self._priority_landing_deadline:
+                return  # Repeated clicks must not restart landing or its deadline.
             self.transport.send("rc 0 0 0 0")
-            if self._pending or self._fault:
+            if self._pending and not self._fault and state.mode == "ready":
+                self.transport.send("land")
+                self._pending = None
+                self._fault = True  # Ignore ambiguous replies until the channel is replaced.
+                self._watchdog_landed = True
+                self._priority_landing_deadline = now + PRIORITY_LANDING_TIMEOUT
+                self._landing_airborne_seen = state.telemetry.height > 0.2
+                self._landing_ground_since = None
+                self._update(mode="landing", flight="landing")
+                self._event("Landing requested; waiting for grounded telemetry")
+            elif self._pending or self._fault:
                 self._watchdog_landed = True
                 self.transport.send("land")
                 self._uncertain("Priority landing sent; acknowledgement cannot be correlated. Verify drone.")

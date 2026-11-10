@@ -19,7 +19,12 @@ so that a 500 cm movement at 10 cm/s can complete. Long waits are local timers w
 
 Movement outcomes are never automatically retried. A timeout quarantines the session; late responses
 are logged and ignored. Reconnect creates a new UDP command source port. Priority landing and motor
-cut bypass the queue, invalidate response correlation, and require physical inspection before reconnect.
+cut bypass the queue and invalidate response correlation. When an operator interrupts an acknowledged
+command with Land in an otherwise healthy session, the console displays Landing and ignores ambiguous
+replies. After observing flight followed by one second of low height, low downward range and low vertical
+speed, it opens a new command source port and performs a fresh SDK handshake automatically. Repeated Land
+clicks do not restart this process. Without sufficient telemetry within 15 seconds, it requires physical
+inspection and reconnection. Motor cut and faulted sessions still require physical inspection.
 Landing acknowledgement plus subsequent low-height telemetry is treated as grounded; this is an
 estimate, not a definitive motor-state measurement. A dead control thread cannot safely recover itself.
 

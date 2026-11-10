@@ -19,16 +19,29 @@ class UDPTransport:
     def open(self):
         # A new source port per session keeps old replies out of a new session.
         try:
-            self.command = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.command.bind((self.config.local_address, 0))
-            self.command.connect((self.config.host, self.config.command_port))
-            self.command.setblocking(False)
+            self.reset_command_channel()
             self.state = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.state.bind((self.config.local_address, self.config.telemetry_port))
             self.state.setblocking(False)
         except OSError:
             self.close()
             raise
+
+    def reset_command_channel(self):
+        # Keep the old port reserved until the replacement is bound, so late
+        # acknowledgements cannot arrive on the replacement command channel.
+        command = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            command.bind((self.config.local_address, 0))
+            command.connect((self.config.host, self.config.command_port))
+            command.setblocking(False)
+        except OSError:
+            command.close()
+            raise
+        previous, self.command = self.command, command
+        if previous:
+            previous.close()
+        LOG.info("command_channel_reset", extra={"data": {"local_port": command.getsockname()[1]}})
 
     def send(self, command: str):
         LOG.debug("udp_tx", extra={"data": {"command": command}})
@@ -75,6 +88,9 @@ class SimulatorTransport:
 
     def open(self):
         pass
+
+    def reset_command_channel(self):
+        self.responses.clear()
 
     def send(self, command):
         LOG.debug("simulator_tx", extra={"data": {"command": command}})
